@@ -1,12 +1,15 @@
 [package]
-name = "max7219"
+name = "fc16"
 version = "0.1.0"
 authors = ["Marc Poulhiès <dkm@kataplop.net>"]
 license = "MIT OR Apache-2.0"
 categories = ["embedded", "hardware-support"]
-keywords = ["max7219"]
-repository = "http://github.com/dkm/max7219-rs.git"
-description = "A simple driver for the max7219 from 'maxim integrated'. Mainly focused on the 8x8 LED matrix"
+keywords = ["max7219", "fc16"]
+repository = "http://github.com/dkm/fc16-rs.git"
+description = "A simple driver for the FC16 board based on max7219 chips and 8x8 LED matrix"
+
+[dependencies]
+max7219 = { path = "../max7219-rs" }
 
 [dependencies.nb]
 version = "0.1.1"
