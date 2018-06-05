@@ -7,6 +7,10 @@
 #![feature(reverse_bits)]
 
 
+extern crate generic_array;
+use generic_array::{ArrayLength,GenericArray};
+use generic_array::typenum::Unsigned;
+
 extern crate embedded_hal as hal;
 use hal::blocking::spi;
 use hal::digital::OutputPin;
@@ -20,22 +24,22 @@ macro_rules! minv {
     ($v1:expr, $v2:expr) =>(if $v1 < $v2 { $v1 } else { $v2 })
 }
 
-const SIZE : usize = 8;
+type PixLine = [u8;8];
 
 /// Pixels of all the LED matrices
-pub struct PixArray {
-    pixels : [[u8;8]; SIZE]
+pub struct PixArray<N: ArrayLength<PixLine>> {
+    pixels : GenericArray<PixLine, N>
 }
 
-impl PixArray {
+impl<N> PixArray<N> where N: ArrayLength<PixLine> {
     /// Creates a new and empty pixel buffer.
-    pub fn new() -> PixArray {
-        PixArray { pixels: [[0;8];SIZE] }
+    pub fn new() -> PixArray<N> {
+        PixArray { pixels: GenericArray::default() }
     }
 
     /// Returns a single block from a character.
-    pub fn from(c : char) -> Result<[u8;8],()> {
-        let mut ret : [u8;8]  = match c {
+    pub fn from(c : char) -> Result<PixLine,()> {
+        let mut ret : PixLine  = match c {
             ' ' => [0b00000000,
                     0b00000000,
                     0b00000000,
@@ -1016,27 +1020,27 @@ impl PixArray {
 
     /// Modify the pixel buffer to match `s` string content.
     pub fn fromstr(&mut self, s: &str) -> Result<(),()> {
-        for i in 0..minv!(SIZE, s.len()) {
-            self.pixels[i] = PixArray::from(s.as_bytes()[i] as char)?;
+        for i in 0..minv!(<N as Unsigned>::to_usize(), s.len()) {
+            self.pixels[i] = Self::from(s.as_bytes()[i] as char)?;
         }
         Ok(())
     }
 
     /// Modify the pixel buffer to match `s` byte array content.
     pub fn fromarr(&mut self, s: &[u8]) -> Result<(),()>{
-        for i in 0..minv!(SIZE,s.len()) {
-            self.pixels[i] = PixArray::from(s[i] as char)?;
+        for i in 0..minv!(<N as Unsigned>::to_usize(),s.len()) {
+            self.pixels[i] = Self::from(s[i] as char)?;
         }
         Ok(())
     }
 
     /// Clears the pixel buffer
     pub fn clear(&mut self) {
-        self.pixels = [[0u8;8];SIZE];
+        self.pixels = GenericArray::default();//[[0u8;8];SIZE];
     }
 
     /// Does the union
-    pub fn union(&mut self, block: usize, o: &[u8;8]) {
+    pub fn union(&mut self, block: usize, o: &PixLine) {
         for i in 0..8 {
             self.pixels[block][i] |= o[i];
         }
@@ -1071,7 +1075,7 @@ impl PixArray {
             let mut inp = if rotate { self.pixels[0][line] & 1 } else { 0 };
             let mut outp;
 
-            for block in (0..SIZE).rev() {
+            for block in (0..<N as Unsigned>::to_usize()).rev() {
                 let mut v = self.pixels[block][line];
                 outp = v & 1;
                 v = (inp<<7) | (v>>1);
@@ -1086,10 +1090,10 @@ impl PixArray {
     /// are used for the new pixels on the left).
     pub fn rshift(&mut self, rotate : bool) {
         for line in 0..8 {
-            let mut inp = if rotate { (self.pixels[SIZE-1][line] & (1<<7))>>7 } else { 0 };
+            let mut inp = if rotate { (self.pixels[<N as Unsigned>::to_usize()-1][line] & (1<<7))>>7 } else { 0 };
             let mut outp;
 
-            for block in 0..SIZE {
+            for block in 0..<N as Unsigned>::to_usize() {
                 let mut v = self.pixels[block][line];
                 outp = (v & (1<<7))>>7;
                 v = inp | (v<<1);
@@ -1103,7 +1107,7 @@ impl PixArray {
     /// performs a rotation (ie. pixels going out at the bottom
     /// are used for the new pixels at the top).
     pub fn dshift(&mut self, rotate : bool) {
-        for block in 0..SIZE {
+        for block in 0..<N as Unsigned>::to_usize() {
             let mut prev_line = if rotate { self.pixels[block][7] } else { 0u8 };
 
             for line in 0..8 {
@@ -1118,7 +1122,7 @@ impl PixArray {
     /// performs a rotation (ie. pixels going out at the top
     /// are used for the new pixels at the bottom).
     pub fn ushift(&mut self, rotate : bool) {
-        for block in 0..SIZE {
+        for block in 0..<N as Unsigned>::to_usize() {
             let mut prev_line = if rotate { self.pixels[block][0] } else { 0u8 };
 
             for line in (0..8).rev() {
@@ -1131,31 +1135,33 @@ impl PixArray {
 }
 
 /// Bob
-pub trait WritePixel<E> {
+pub trait WritePixel<E,N>
+where N: ArrayLength<PixLine> {
     /// bob
     fn write_lines(&mut self, line_index: u8, vals: &[u8]) -> Result<(),E>;
     /// bob
-    fn write_pixbuf(&mut self, pixbuf: &PixArray) -> Result<(),E>;
+    fn write_pixbuf(&mut self, pixbuf: &PixArray<N>) -> Result<(),E>;
 }
 
-impl<SPI,P,E> WritePixel<E> for Max7219<SPI,P>
+impl<SPI,P,E,N> WritePixel<E,N> for Max7219<SPI,P>
 where SPI: spi::Write<u8,Error = E>,
-      P: OutputPin {
+      P: OutputPin,
+      N: ArrayLength<PixLine> {
     /// Writes a line
     fn write_lines(&mut self, line_index: u8, vals: &[u8]) -> Result<(),E> {
         self.cs.set_low();
-        for i in 0..minv!(SIZE, vals.len()) {
+        for i in 0..minv!(<N as Unsigned>::to_usize(), vals.len()) {
             self.set_reg(max7219::Max7219Regs::from(line_index), vals[i as usize])?;
         }
         self.cs.set_high();
         Ok(())
     }
 
-    fn write_pixbuf(&mut self, pixbuf: &PixArray) -> Result<(),E>{
+    fn write_pixbuf(&mut self, pixbuf: &PixArray<N>) -> Result<(),E>{
         for l in 0..8 {
             let line = max7219::Max7219Regs::from(7-l);
             self.cs.set_low();
-            for i in (0..SIZE).rev() {
+            for i in (0..<N as Unsigned>::to_usize()).rev() {
                 self.set_reg(line, pixbuf.get_pixel_line(i ,l as usize).unwrap())?;
             }
             self.cs.set_high();
