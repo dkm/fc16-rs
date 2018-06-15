@@ -16,5 +16,5 @@ generic-array = "0.11.0"
 version = "0.1.1"
 
 [dependencies.embedded-hal]
-version = "0.1.1"
+version = "0.2.1"
 features = ["unproven"]
